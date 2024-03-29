@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from sqlmodel import Field, SQLModel, create_engine, Session, select
 from databases import DatabaseURL, Database
 import csv
@@ -74,15 +74,47 @@ async def create_db_if_not_exists():
             await insert_data_from_csv()
 
 # Fonction pour insérer les données du CSV dans la base de données
-# Fonction pour insérer les données du CSV dans la base de données
 async def insert_data_from_csv():
     with open('donnees_dvf.csv', newline='', encoding='utf-8') as csvfile:
-        reader = csv.DictReader(csvfile, delimiter=';')
+        reader = csv.DictReader(csvfile)
         async with database.transaction():
             for row in reader:
-                values = {k: v for k, v in row.items() if k in Dvf.__annotations__}
-                query = Dvf.__table__.insert().values(**values)
-                await database.execute(query=query)
+                query_values = {}
+                for key, value in row.items():
+                    # Vérifie si la valeur est vide et la remplace par None
+                    if value == "":
+                        query_values[key] = None
+                    else:
+                        query_values[key] = value
+
+                    # Si la colonne n'est pas présente dans le fichier CSV, insère None
+                    if key not in query_values:
+                        query_values[key] = None
+                        
+                    # Convertit les nombres décimaux
+                    if key in ["valeur_fonciere", "lot1_surface_carrez", "lot2_surface_carrez", "lot3_surface_carrez", "lot4_surface_carrez", "lot5_surface_carrez", "surface_reelle_bati", "surface_terrain", "longitude", "latitude"]:
+                        if query_values[key] is not None:
+                            try:
+                                query_values[key] = float(query_values[key])
+                            except ValueError:
+                                query_values[key] = None
+
+                    # Convertit les nombres entiers
+                    if key in ["nombre_lots", "nombre_pieces_principales"]:
+                        if query_values[key] is not None:
+                            try:
+                                query_values[key] = int(query_values[key])
+                            except ValueError:
+                                query_values[key] = None
+
+                # Vérifie si une entrée avec la même id_mutation existe déjà dans la base de données
+                existing_entry = await database.fetch_one(Dvf.__table__.select().where(Dvf.id_mutation == query_values["id_mutation"]))
+                if existing_entry is None:
+                    query = Dvf.__table__.insert().values(**query_values)
+                    await database.execute(query=query)
+                else:
+                    continue
+
 
 
 # Endpoint pour récupérer les prix moyens au mètre carré par ville
@@ -92,6 +124,39 @@ async def lire_prix_moyen_m2_par_ville():
     result = await database.fetch_all(query)
     prix_moyen_m2_par_ville = {row["nom_commune"]: row["prix_moyen_m2"] for row in result}
     return prix_moyen_m2_par_ville
+
+# Endpoint qui récupère les données en fonction du code postal
+@app.get("/dvf/{code_postal}")
+async def lire_dvf_par_code_postal(code_postal: str):
+    query = select(Dvf).where(Dvf.code_postal == code_postal)
+    result = await database.fetch_all(query)
+    return result
+
+@app.get("/get_data/")
+async def get_data():
+    query = select(Dvf).where(Dvf.code_postal == "75001")
+    result = await database.fetch_all(query)
+    return result
+
+# endpoint pour récupérer la moyenne du prix au M2 par code postal
+@app.get("/prix-moyen-m2-par-code-postal/")
+async def lire_prix_moyen_m2_par_code_postal():
+    query = select(Dvf.code_postal, (Dvf.valeur_fonciere / Dvf.surface_reelle_bati).label("prix_moyen_m2")).where((Dvf.nature_mutation == "Vente") & (Dvf.type_local == "Maison" | Dvf.type_local == "Appartement")).group_by(Dvf.code_postal)
+    result = await database.fetch_all(query)
+    prix_moyen_m2_par_code_postal = {row["code_postal"]: row["prix_moyen_m2"] for row in result}
+    return prix_moyen_m2_par_code_postal
+
+# Endpoint pour récupérer les prix moyens au mètre carré par nom de ville pour les maisons uniquement
+@app.get("/prix-moyen-m2-par-ville-maisons/")
+async def lire_prix_moyen_m2_par_ville_maisons(nom_ville: str = Query(..., description="Nom de la ville")):
+    query = select(Dvf.nom_commune, (Dvf.valeur_fonciere / Dvf.surface_reelle_bati).label("prix_moyen_m2")).where((Dvf.nature_mutation == "Vente") & (Dvf.type_local == "Maison")).group_by(Dvf.nom_commune)
+    result = await database.fetch_all(query)
+    prix_moyen_m2_par_ville_maisons = {row["nom_commune"]: row["prix_moyen_m2"] for row in result}
+    if nom_ville in prix_moyen_m2_par_ville_maisons:
+        return {nom_ville: prix_moyen_m2_par_ville_maisons[nom_ville]}
+    else:
+        raise HTTPException(status_code=404, detail=f"Prix moyen au mètre carré pour les maisons non trouvé pour la ville : {nom_ville}")
+
 
 if __name__ == "__main__":
     import uvicorn
