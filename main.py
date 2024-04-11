@@ -128,105 +128,25 @@ async def insert_data_from_csv():
 # Endpoint pour récupérer les prix moyens au mètre carré par nom de ville pour les maisons uniquement
 @app.get("/prix-moyen-m2-par-ville-maisons/")
 async def lire_prix_moyen_m2_par_ville_maisons(nom_ville: str = Query(..., description="Nom de la ville")):
-    query = (
-        select(
-            Dvf.nom_commune,
-            func.avg(Dvf.valeur_fonciere / Dvf.surface_reelle_bati).label("prix_moyen_m2")
+    if len(nom_ville) == 2 and nom_ville.isdigit():
+        query = (
+            select(
+                Dvf.code_departement,
+                func.avg(Dvf.valeur_fonciere / Dvf.surface_reelle_bati).label("prix_moyen_m2")
+            )
+            .where(
+                (Dvf.nature_mutation.in_(["Vente", "Vente en l'état futur d'achèvement"])) &
+                (Dvf.type_local == "Maison") &
+                (Dvf.code_departement == nom_ville)
+            )
+            .group_by(Dvf.code_departement)
         )
-        .where(
-            (Dvf.nature_mutation.in_(["Vente", "Vente en l'état futur d'achèvement"])) &
-            (Dvf.type_local == "Maison") &
-            (Dvf.nom_commune == nom_ville)
-        )
-        .group_by(Dvf.nom_commune)
-    )
-    result = await database.fetch_all(query)
-    if result:
-        print(result[0]["nom_commune"])
-        return {result[0]["nom_commune"]: result[0]["prix_moyen_m2"]}
+        result = await database.fetch_all(query)
+        if result:
+            return {result[0]["code_departement"]: result[0]["prix_moyen_m2"]}
+        else:
+            raise HTTPException(status_code=404, detail=f"Prix moyen au mètre carré pour les maisons non trouvé pour la ville : {nom_ville}")
     else:
-        raise HTTPException(status_code=404, detail=f"Prix moyen au mètre carré pour les maisons non trouvé pour la ville : {nom_ville}")
-
-@app.get("/prix-moyen-m2-par-ville-appartement/")
-async def lire_prix_moyen_m2_par_ville_appartement(nom_ville: str = Query(..., description="Nom de la ville")):
-    query = (
-        select(
-            Dvf.nom_commune,
-            func.avg(Dvf.valeur_fonciere / Dvf.surface_reelle_bati).label("prix_moyen_m2")
-        )
-        .where(
-            (Dvf.nature_mutation.in_(["Vente", "Vente en l'état futur d'achèvement"])) &
-            (Dvf.type_local == "Appartement") &
-            (Dvf.nom_commune == nom_ville)
-        )
-        .group_by(Dvf.nom_commune)
-    )
-    result = await database.fetch_all(query)
-    if result:
-        return {result[0]["nom_commune"]: result[0]["prix_moyen_m2"]}
-    else:
-        raise HTTPException(status_code=404, detail=f"Prix moyen au mètre carré pour les appartements non trouvé pour la ville : {nom_ville}")
-
-@app.get("/prix-moyen-m2-par-ville/")
-async def lire_prix_moyen_m2_par_ville(nom_ville: str = Query(..., description="Nom de la ville")):
-    query = (
-        select(
-            Dvf.nom_commune,
-            func.avg(Dvf.valeur_fonciere / Dvf.surface_reelle_bati).label("prix_moyen_m2")
-        )
-        .where(
-            (Dvf.nature_mutation.in_(["Vente", "Vente en l'état futur d'achèvement"])) &
-            (Dvf.nom_commune == nom_ville)
-        )
-        .group_by(Dvf.nom_commune)
-    )
-    result = await database.fetch_all(query)
-    if result:
-        return {result[0]["nom_commune"]: result[0]["prix_moyen_m2"]}
-    else:
-        raise HTTPException(status_code=404, detail=f"Prix moyen au mètre carré non trouvé pour la ville : {nom_ville}")
-
-
-# Endpoint pour récupérer la moyenne de nombres de m2 par maison par commune
-@app.get("/moyenne-m2-maison-par-commune/")
-async def moyenne_m2_maison_par_commune(nom_commune: str = Query(..., description="Nom de la commune")):
-    query = select(Dvf).where(
-        (Dvf.nature_mutation.in_(["Vente", "Vente en l'état futur d'achèvement"])) &
-        (Dvf.type_local == "Maison") &
-        (Dvf.nom_commune == nom_commune)
-    )
-    result = await database.fetch_all(query)
-    if result:
-        total_surface = 0
-        for row in result:
-            total_surface += row.surface_reelle_bati
-        return {nom_commune: total_surface / len(result)}
-    else:
-        raise HTTPException(status_code=404, detail=f"Nombre de mètres carrés moyen par maison non trouvé pour la commune : {nom_commune}")
-
-# Endpoint pour récupérer la moyenne de nombres de m2 par maison par commune
-@app.get("/moyenne-m2-appartement-par-commune/")
-async def moyenne_m2_appartement_par_commune(nom_commune: str = Query(..., description="Nom de la commune")):
-    query = select(Dvf).where(
-        (Dvf.nature_mutation.in_(["Vente", "Vente en l'état futur d'achèvement"])) &
-        (Dvf.type_local == "Appartement") &
-        (Dvf.nom_commune == nom_commune)
-    )
-    result = await database.fetch_all(query)
-    if result:
-        total_surface = 0
-        for row in result:
-            total_surface += row.surface_reelle_bati
-        return {nom_commune: total_surface / len(result)}
-    else:
-        raise HTTPException(status_code=404, detail=f"Nombre de mètres carrés moyen par appartement non trouvé pour la commune : {nom_commune}")
-
-# Endpoint pour récupérer les prix moyens au mètre carré par liste de villes
-@app.get("/prix-moyen-m2-par-villes/")
-async def lire_prix_moyen_m2_par_villes(villes: str = Query(..., description="Liste de villes séparées par des virgules")):
-    villes_list = villes.split(",")
-    prix_moyen_m2_par_ville = {}
-    for ville in villes_list:
         query = (
             select(
                 Dvf.nom_commune,
@@ -234,15 +154,199 @@ async def lire_prix_moyen_m2_par_villes(villes: str = Query(..., description="Li
             )
             .where(
                 (Dvf.nature_mutation.in_(["Vente", "Vente en l'état futur d'achèvement"])) &
-                (Dvf.nom_commune == ville)
+                (Dvf.type_local == "Maison") &
+                (Dvf.nom_commune == nom_ville)
             )
             .group_by(Dvf.nom_commune)
         )
         result = await database.fetch_all(query)
         if result:
-            prix_moyen_m2_par_ville[result[0]["nom_commune"]] = result[0]["prix_moyen_m2"]
+            print(result[0]["nom_commune"])
+            return {result[0]["nom_commune"]: result[0]["prix_moyen_m2"]}
         else:
-            prix_moyen_m2_par_ville[ville] = None
+            raise HTTPException(status_code=404, detail=f"Prix moyen au mètre carré pour les maisons non trouvé pour la ville : {nom_ville}")
+
+@app.get("/prix-moyen-m2-par-ville-appartement/")
+async def lire_prix_moyen_m2_par_ville_appartement(nom_ville: str = Query(..., description="Nom de la ville")):
+    if len(nom_ville) == 2 and nom_ville.isdigit():
+        query = (
+            select(
+                Dvf.code_departement,
+                func.avg(Dvf.valeur_fonciere / Dvf.surface_reelle_bati).label("prix_moyen_m2")
+            )
+            .where(
+                (Dvf.nature_mutation.in_(["Vente", "Vente en l'état futur d'achèvement"])) &
+                (Dvf.type_local == "Appartement") &
+                (Dvf.code_departement == nom_ville)
+            )
+            .group_by(Dvf.code_departement)
+        )
+        result = await database.fetch_all(query)
+        if result:
+            return {result[0]["code_departement"]: result[0]["prix_moyen_m2"]}
+        else:
+            raise HTTPException(status_code=404, detail=f"Prix moyen au mètre carré pour les appartements non trouvé pour la ville : {nom_ville}")
+    else:
+        query = (
+            select(
+                Dvf.nom_commune,
+                func.avg(Dvf.valeur_fonciere / Dvf.surface_reelle_bati).label("prix_moyen_m2")
+            )
+            .where(
+                (Dvf.nature_mutation.in_(["Vente", "Vente en l'état futur d'achèvement"])) &
+                (Dvf.type_local == "Appartement") &
+                (Dvf.nom_commune == nom_ville)
+            )
+            .group_by(Dvf.nom_commune)
+        )
+        result = await database.fetch_all(query)
+        if result:
+            return {result[0]["nom_commune"]: result[0]["prix_moyen_m2"]}
+        else:
+            raise HTTPException(status_code=404, detail=f"Prix moyen au mètre carré pour les appartements non trouvé pour la ville : {nom_ville}")
+
+@app.get("/prix-moyen-m2-par-ville/")
+async def lire_prix_moyen_m2_par_ville(nom_ville: str = Query(..., description="Nom de la ville")):
+    if len(nom_ville) == 2 and nom_ville.isdigit():
+        query = (
+            select(
+                Dvf.code_departement,
+                func.avg(Dvf.valeur_fonciere / Dvf.surface_reelle_bati).label("prix_moyen_m2")
+            )
+            .where(
+                (Dvf.nature_mutation.in_(["Vente", "Vente en l'état futur d'achèvement"])) &
+                (Dvf.code_departement == nom_ville)
+            )
+            .group_by(Dvf.code_departement)
+        )
+        result = await database.fetch_all(query)
+        if result:
+            return {result[0]["code_departement"]: result[0]["prix_moyen_m2"]}
+        else:
+            raise HTTPException(status_code=404, detail=f"Prix moyen au mètre carré non trouvé pour le département : {nom_ville}")
+    else:
+        query = (
+            select(
+                Dvf.nom_commune,
+                func.avg(Dvf.valeur_fonciere / Dvf.surface_reelle_bati).label("prix_moyen_m2")
+            )
+            .where(
+                (Dvf.nature_mutation.in_(["Vente", "Vente en l'état futur d'achèvement"])) &
+                (Dvf.nom_commune == nom_ville)
+            )
+            .group_by(Dvf.nom_commune)
+        )
+        result = await database.fetch_all(query)
+        if result:
+            return {result[0]["nom_commune"]: result[0]["prix_moyen_m2"]}
+        else:
+            raise HTTPException(status_code=404, detail=f"Prix moyen au mètre carré non trouvé pour la ville : {nom_ville}")
+
+
+# Endpoint pour récupérer la moyenne de nombres de m2 par maison par commune
+@app.get("/moyenne-m2-maison-par-commune/")
+async def moyenne_m2_maison_par_commune(nom_commune: str = Query(..., description="Nom de la commune")):
+    if len(nom_commune) == 2 and nom_commune.isdigit():
+        query = select(Dvf).where(
+            (Dvf.nature_mutation.in_(["Vente", "Vente en l'état futur d'achèvement"])) &
+            (Dvf.type_local == "Maison") &
+            (Dvf.code_departement == nom_commune)
+        )
+        result = await database.fetch_all(query)
+        if result:
+            total_surface = 0
+            for row in result:
+                total_surface += row.surface_reelle_bati
+            return {nom_commune: total_surface / len(result)}
+        else:
+            raise HTTPException(status_code=404, detail=f"Nombre de mètres carrés moyen par maison non trouvé pour la commune : {nom_commune}")
+    else:
+        query = select(Dvf).where(
+            (Dvf.nature_mutation.in_(["Vente", "Vente en l'état futur d'achèvement"])) &
+            (Dvf.type_local == "Maison") &
+            (Dvf.nom_commune == nom_commune)
+        )
+        result = await database.fetch_all(query)
+        if result:
+            total_surface = 0
+            for row in result:
+                total_surface += row.surface_reelle_bati
+            return {nom_commune: total_surface / len(result)}
+        else:
+            raise HTTPException(status_code=404, detail=f"Nombre de mètres carrés moyen par maison non trouvé pour la commune : {nom_commune}")
+
+# Endpoint pour récupérer la moyenne de nombres de m2 par maison par commune
+@app.get("/moyenne-m2-appartement-par-commune/")
+async def moyenne_m2_appartement_par_commune(nom_commune: str = Query(..., description="Nom de la commune")):
+    if len(nom_commune) == 2 and nom_commune.isdigit():
+        query = select(Dvf).where(
+            (Dvf.nature_mutation.in_(["Vente", "Vente en l'état futur d'achèvement"])) &
+            (Dvf.type_local == "Appartement") &
+            (Dvf.code_departement == nom_commune)
+        )
+        result = await database.fetch_all(query)
+        if result:
+            total_surface = 0
+            for row in result:
+                total_surface += row.surface_reelle_bati
+            return {nom_commune: total_surface / len(result)}
+        else:
+            raise HTTPException(status_code=404, detail=f"Nombre de mètres carrés moyen par appartement non trouvé pour la commune : {nom_commune}")
+    else:
+        query = select(Dvf).where(
+            (Dvf.nature_mutation.in_(["Vente", "Vente en l'état futur d'achèvement"])) &
+            (Dvf.type_local == "Appartement") &
+            (Dvf.nom_commune == nom_commune)
+        )
+        result = await database.fetch_all(query)
+        if result:
+            total_surface = 0
+            for row in result:
+                total_surface += row.surface_reelle_bati
+            return {nom_commune: total_surface / len(result)}
+        else:
+            raise HTTPException(status_code=404, detail=f"Nombre de mètres carrés moyen par appartement non trouvé pour la commune : {nom_commune}")
+
+# Endpoint pour récupérer les prix moyens au mètre carré par liste de villes
+@app.get("/prix-moyen-m2-par-villes/")
+async def lire_prix_moyen_m2_par_villes(villes: str = Query(..., description="Liste de villes séparées par des virgules")):
+    villes_list = villes.split(",")
+    prix_moyen_m2_par_ville = {}
+    for ville in villes_list:
+        if len(ville) == 2 and ville.isdigit():  # Si le paramètre est un code départemental
+            query = (
+                select(
+                    Dvf.nom_commune,
+                    func.avg(Dvf.valeur_fonciere / Dvf.surface_reelle_bati).label("prix_moyen_m2")
+                )
+                .where(
+                    (Dvf.nature_mutation.in_(["Vente", "Vente en l'état futur d'achèvement"])) &
+                    (Dvf.code_departement == ville)
+                )
+                .group_by(Dvf.nom_commune)
+            )
+            result = await database.fetch_all(query)
+            if result:
+                prix_moyen_m2_par_ville[ville] = result[0]["prix_moyen_m2"]
+            else:
+                prix_moyen_m2_par_ville[ville] = None
+        else:  # Si le paramètre est le nom de la ville
+            query = (
+                select(
+                    Dvf.nom_commune,
+                    func.avg(Dvf.valeur_fonciere / Dvf.surface_reelle_bati).label("prix_moyen_m2")
+                )
+                .where(
+                    (Dvf.nature_mutation.in_(["Vente", "Vente en l'état futur d'achèvement"])) &
+                    (Dvf.nom_commune == ville)
+                )
+                .group_by(Dvf.nom_commune)
+            )
+            result = await database.fetch_all(query)
+            if result:
+                prix_moyen_m2_par_ville[ville] = result[0]["prix_moyen_m2"]
+            else:
+                prix_moyen_m2_par_ville[ville] = None
     return prix_moyen_m2_par_ville
 
 @app.get("/maisons-par-commune/")
@@ -259,25 +363,46 @@ async def maisons_par_commune(nom_commune: str = Query(..., description="Nom de 
 # Endpoint pour récupérer la moyenne de nombres de m2 de terrain des maisons par commune
 @app.get("/moyenne-m2-terrain-maison-par-commune/")
 async def moyenne_m2_terrain_maison_par_commune(nom_commune: str = Query(..., description="Nom de la commune")):
-    query = select(Dvf).where(
-        (Dvf.nature_mutation.in_(["Vente", "Vente en l'état futur d'achèvement"])) &
-        (Dvf.type_local == "Maison") &
-        (Dvf.nom_commune == nom_commune)
-    )
-    result = await database.fetch_all(query)
-    if result:
-        total_surface = 0
-        total_count = 0
-        for row in result:
-            if row.surface_terrain:
-                total_surface += row.surface_terrain
-                total_count += 1
-        if total_count > 0:
-            return {nom_commune: total_surface / total_count}
+    if len(nom_commune) == 2 and nom_commune.isdigit():
+        query = select(Dvf).where(
+            (Dvf.nature_mutation.in_(["Vente", "Vente en l'état futur d'achèvement"])) &
+            (Dvf.type_local == "Maison") &
+            (Dvf.code_departement == nom_commune)
+        )
+        result = await database.fetch_all(query)
+        if result:
+            total_surface = 0
+            total_count = 0
+            for row in result:
+                if row.surface_terrain:
+                    total_surface += row.surface_terrain
+                    total_count += 1
+            if total_count > 0:
+                return {nom_commune: total_surface / total_count}
+            else:
+                raise HTTPException(status_code=404, detail=f"Nombre de mètres carrés moyen de terrain par maison non trouvé pour la commune : {nom_commune}")
         else:
             raise HTTPException(status_code=404, detail=f"Nombre de mètres carrés moyen de terrain par maison non trouvé pour la commune : {nom_commune}")
     else:
-        raise HTTPException(status_code=404, detail=f"Nombre de mètres carrés moyen de terrain par maison non trouvé pour la commune : {nom_commune}")
+        query = select(Dvf).where(
+            (Dvf.nature_mutation.in_(["Vente", "Vente en l'état futur d'achèvement"])) &
+            (Dvf.type_local == "Maison") &
+            (Dvf.nom_commune == nom_commune)
+        )
+        result = await database.fetch_all(query)
+        if result:
+            total_surface = 0
+            total_count = 0
+            for row in result:
+                if row.surface_terrain:
+                    total_surface += row.surface_terrain
+                    total_count += 1
+            if total_count > 0:
+                return {nom_commune: total_surface / total_count}
+            else:
+                raise HTTPException(status_code=404, detail=f"Nombre de mètres carrés moyen de terrain par maison non trouvé pour la commune : {nom_commune}")
+        else:
+            raise HTTPException(status_code=404, detail=f"Nombre de mètres carrés moyen de terrain par maison non trouvé pour la commune : {nom_commune}")
 
 if __name__ == "__main__":
     import uvicorn

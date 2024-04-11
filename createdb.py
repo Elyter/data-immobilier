@@ -1,5 +1,6 @@
 import sqlite3
 import csv
+from urllib.request import urlretrieve
 
 # Chemin vers le fichier CSV
 csv_file = "data.csv"
@@ -10,6 +11,7 @@ db_file = "dvf.db"
 # Connexion à la base de données SQLite
 conn = sqlite3.connect(db_file)
 cursor = conn.cursor()
+
 
 # Création de la table dans la base de données SQLite
 cursor.execute('''CREATE TABLE IF NOT EXISTS dvf (
