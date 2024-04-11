@@ -1,6 +1,5 @@
 import sqlite3
 import csv
-from urllib.request import urlretrieve
 
 # Chemin vers le fichier CSV
 csv_file = "data.csv"
